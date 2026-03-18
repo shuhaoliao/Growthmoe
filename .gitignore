@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Local editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Experiment outputs
+runs/
+smoke_run/
+*.pt
+*.jsonl
+
+# Local research material
+paper/
+
+# Virtual environments
+.venv/
+venv/
+env/

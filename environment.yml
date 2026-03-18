@@ -1,0 +1,13 @@
+name: growthmoe
+channels:
+  - pytorch
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.12
+  - numpy
+  - matplotlib
+  - pillow
+  - pip
+  - pip:
+      - gymnasium
