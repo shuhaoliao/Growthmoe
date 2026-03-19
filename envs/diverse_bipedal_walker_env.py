@@ -118,8 +118,6 @@ class DiverseBipedalWalkerEnv(BipedalWalker):
                 "section_min": max(10, section_min - 4),
                 "section_max": max(section_min - 2, section_max - 4),
                 "slope_scale": float(self.config.bipedal_new_slope_scale),
-                "slope_angle_min_deg": float(self.config.bipedal_slope_angle_min_deg),
-                "slope_angle_max_deg": float(self.config.bipedal_slope_angle_max_deg),
                 "roughness": float(self.config.bipedal_new_roughness),
                 "flat_noise": float(self.config.bipedal_flat_noise) * 1.35,
                 "height_clip": float(self.config.bipedal_height_clip),
@@ -129,8 +127,6 @@ class DiverseBipedalWalkerEnv(BipedalWalker):
             "section_min": section_min,
             "section_max": section_max,
             "slope_scale": float(self.config.bipedal_old_slope_scale),
-            "slope_angle_min_deg": float(self.config.bipedal_slope_angle_min_deg),
-            "slope_angle_max_deg": float(self.config.bipedal_slope_angle_max_deg),
             "roughness": float(self.config.bipedal_old_roughness),
             "flat_noise": float(self.config.bipedal_flat_noise),
             "height_clip": float(self.config.bipedal_height_clip),
@@ -197,52 +193,24 @@ class DiverseBipedalWalkerEnv(BipedalWalker):
             return values, current_y
 
         if terrain_name == "uphill":
-            angle_deg = float(
-                np.clip(
-                    self.np_random.uniform(
-                        settings["slope_angle_min_deg"],
-                        settings["slope_angle_max_deg"],
-                    )
-                    * settings["slope_scale"],
-                    settings["slope_angle_min_deg"],
-                    settings["slope_angle_max_deg"],
-                )
-            )
-            slope = math.tan(math.radians(angle_deg)) * TERRAIN_STEP
-            section_origin = current_y
-            local_clip = max(clip_delta, abs(slope) * section_length + 0.75)
+            slope = float(self.np_random.uniform(0.018, 0.032) * settings["slope_scale"])
+            target_y = center_y + 0.45
             for _ in range(section_length):
-                drift = 0.01 * (center_y - current_y)
+                drift = 0.025 * (target_y - current_y)
                 noise = float(self.np_random.uniform(-0.7 * flat_noise, 0.7 * flat_noise))
                 current_y += slope + drift + noise
-                current_y = float(
-                    np.clip(current_y, section_origin - local_clip, section_origin + local_clip)
-                )
+                current_y = float(np.clip(current_y, center_y - clip_delta, center_y + clip_delta))
                 values.append(current_y)
             return values, current_y
 
         if terrain_name == "downhill":
-            angle_deg = float(
-                np.clip(
-                    self.np_random.uniform(
-                        settings["slope_angle_min_deg"],
-                        settings["slope_angle_max_deg"],
-                    )
-                    * settings["slope_scale"],
-                    settings["slope_angle_min_deg"],
-                    settings["slope_angle_max_deg"],
-                )
-            )
-            slope = math.tan(math.radians(angle_deg)) * TERRAIN_STEP
-            section_origin = current_y
-            local_clip = max(clip_delta, abs(slope) * section_length + 0.75)
+            slope = float(self.np_random.uniform(0.018, 0.032) * settings["slope_scale"])
+            target_y = center_y - 0.45
             for _ in range(section_length):
-                drift = 0.01 * (center_y - current_y)
+                drift = 0.025 * (target_y - current_y)
                 noise = float(self.np_random.uniform(-0.7 * flat_noise, 0.7 * flat_noise))
                 current_y += -slope + drift + noise
-                current_y = float(
-                    np.clip(current_y, section_origin - local_clip, section_origin + local_clip)
-                )
+                current_y = float(np.clip(current_y, center_y - clip_delta, center_y + clip_delta))
                 values.append(current_y)
             return values, current_y
 

@@ -41,8 +41,6 @@ class EnvConfig:
     bipedal_section_max_steps: int = 30
     bipedal_old_slope_scale: float = 1.0
     bipedal_new_slope_scale: float = 1.25
-    bipedal_slope_angle_min_deg: float = 30.0
-    bipedal_slope_angle_max_deg: float = 40.0
     bipedal_old_roughness: float = 1.0
     bipedal_new_roughness: float = 1.4
     bipedal_flat_noise: float = 0.008
