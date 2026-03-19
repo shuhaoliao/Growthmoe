@@ -100,6 +100,11 @@ class MoEConfig:
 
 
 @dataclass
+class NetworkConfig:
+    critic_hidden_dims: list[int] = field(default_factory=lambda: [128, 128])
+
+
+@dataclass
 class GrowthConfig:
     action_schedule: str = "gpo_paper"
     beta_start: float = 0.2
@@ -135,6 +140,7 @@ class ExperimentConfig:
     env: EnvConfig = field(default_factory=EnvConfig)
     ppo: PPOConfig = field(default_factory=PPOConfig)
     moe: MoEConfig = field(default_factory=MoEConfig)
+    network: NetworkConfig = field(default_factory=NetworkConfig)
     growth: GrowthConfig = field(default_factory=GrowthConfig)
     stage_steps: dict[str, int] = field(
         default_factory=lambda: {
@@ -159,6 +165,33 @@ def _make_stage_steps(preset: str) -> dict[str, int]:
         "maturation": 20_000,
         "relearning": 40_000,
     }
+
+
+def _apply_bipedal_defaults(cfg: ExperimentConfig, preset: str) -> None:
+    cfg.moe.shared_hidden = 256
+    cfg.moe.expert_hidden = 128
+    cfg.network.critic_hidden_dims = [256, 256, 128]
+    cfg.eval_episodes = 8
+    cfg.ppo.learning_rate = 2.5e-4
+    cfg.ppo.minibatch_size = 512
+    cfg.ppo.ent_coef = 0.0 if cfg.exp_name in {"moe_only", "full"} else 5e-4
+
+    if preset == "quick":
+        cfg.stage_steps = {
+            "acquisition": 300_000,
+            "maturation": 80_000,
+            "relearning": 120_000,
+        }
+        cfg.ppo.rollout_steps = 2048
+        cfg.ppo.update_epochs = 8
+    else:
+        cfg.stage_steps = {
+            "acquisition": 1_000_000,
+            "maturation": 200_000,
+            "relearning": 300_000,
+        }
+        cfg.ppo.rollout_steps = 4096
+        cfg.ppo.update_epochs = 10
 
 
 def make_config(
@@ -208,6 +241,9 @@ def make_config(
     else:
         raise ValueError(f"Unknown preset: {preset}")
 
+    if env_name == "bipedal_diverse":
+        _apply_bipedal_defaults(cfg, preset)
+
     return cfg
 
 
@@ -224,6 +260,7 @@ def config_from_dict(data: dict[str, Any]) -> ExperimentConfig:
     env = EnvConfig(**env_data)
     ppo = PPOConfig(**data["ppo"])
     moe = MoEConfig(**data["moe"])
+    network = NetworkConfig(**data.get("network", {}))
     growth = GrowthConfig(**growth_data)
     return ExperimentConfig(
         exp_name=data["exp_name"],
@@ -236,6 +273,7 @@ def config_from_dict(data: dict[str, Any]) -> ExperimentConfig:
         env=env,
         ppo=ppo,
         moe=moe,
+        network=network,
         growth=growth,
         stage_steps=data["stage_steps"],
         success_threshold=data.get("success_threshold", 0.7),

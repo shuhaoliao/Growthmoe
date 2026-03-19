@@ -7,6 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from envs import SUPPORTED_ENVS
+from postprocess_run import postprocess_run
 from train import run_training
 
 
@@ -53,6 +54,11 @@ def main() -> None:
             env=args.env,
         )
         outputs[exp_name] = str(run_training(run_args))
+        postprocess_run(
+            run_dir=group_dir / exp_name,
+            exp_name=exp_name,
+            device=args.device,
+        )
 
     manifest = {
         "timestamp": timestamp,

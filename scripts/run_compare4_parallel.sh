@@ -106,15 +106,24 @@ run_exp() {
   local console_log="${GROUP_DIR}/${exp_name}.console.log"
 
   echo "[launch] ${exp_name} stage=${stage_name} log=${console_log}"
-  "${PYTHON_BIN}" train.py \
-    --exp "${exp_name}" \
-    --preset "${PRESET}" \
-    --stage "${stage_name}" \
-    --seed "${SEED}" \
-    --device "${DEVICE}" \
-    --env "${ENV_NAME}" \
-    --run-dir "${run_dir}" \
-    > "${console_log}" 2>&1 &
+  (
+    set -euo pipefail
+    echo "[train] ${exp_name} started"
+    "${PYTHON_BIN}" train.py \
+      --exp "${exp_name}" \
+      --preset "${PRESET}" \
+      --stage "${stage_name}" \
+      --seed "${SEED}" \
+      --device "${DEVICE}" \
+      --env "${ENV_NAME}" \
+      --run-dir "${run_dir}"
+    echo "[postprocess] ${exp_name} started"
+    "${PYTHON_BIN}" postprocess_run.py \
+      --run-dir "${run_dir}" \
+      --exp "${exp_name}" \
+      --device "${DEVICE}"
+    echo "[postprocess] ${exp_name} finished"
+  ) > "${console_log}" 2>&1 &
 
   PIDS+=("$!")
   NAMES+=("${exp_name}")
@@ -134,7 +143,7 @@ for idx in "${!PIDS[@]}"; do
   pid="${PIDS[$idx]}"
   name="${NAMES[$idx]}"
   if wait "${pid}"; then
-    echo "[done] ${name}"
+  echo "[done] ${name} (train + postprocess)"
   else
     echo "[fail] ${name} exited with a non-zero status" >&2
     exit 1
@@ -169,8 +178,8 @@ print(group_dir)
 PY
 
 if [[ "${SKIP_SUMMARY}" != "1" ]]; then
-  echo "[summary] starting post-training evaluation and visualization export"
-  echo "[summary] summarize_results.py will load checkpoints, run rollout evaluation, and save GIF/PNG outputs"
+  echo "[summary] starting result aggregation"
+  echo "[summary] summarize_results.py will reuse per-run evaluation artifacts when available"
   "${PYTHON_BIN}" summarize_results.py --group-dir "${GROUP_DIR}" --device "${DEVICE}" | tee "${GROUP_DIR}/summary.stdout.log"
 fi
 

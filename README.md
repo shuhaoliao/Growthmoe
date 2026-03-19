@@ -172,6 +172,7 @@ bash scripts/run_compare4_bipedal_parallel.sh --preset full --device cuda
 ```
 
 This runs the same four methods in parallel on `bipedal_diverse` and keeps the summary outputs in the same timestamped folder layout.
+Each run also performs post-training evaluation immediately after its own training ends, exporting `final_eval/final_policy.gif` and `final_eval/final_policy.json` before the group summary step.
 
 ### Python batch runner: serial execution
 
@@ -256,6 +257,8 @@ Key outputs:
 - `reward_comparison_acquisition.png`
 - `success_comparison_acquisition.png`
 - `focused_metrics.json`
+- `<RUN>/<EXP>/final_eval/final_policy.gif`
+- `<RUN>/<EXP>/final_eval/final_policy.json`
 - `coverage_curve.png` inside each run's `plots/`
 - `baseline_final_policy.gif`
 - `gpo_only_final_policy.gif`
@@ -317,6 +320,11 @@ Full preset:
 - acquisition: `200k`
 - maturation: `50k`
 - relearning: `100k`
+
+For `bipedal_diverse`, the default budget is larger:
+
+- quick: acquisition `300k`
+- full: acquisition `1,000k`
 
 ## Useful Commands
 

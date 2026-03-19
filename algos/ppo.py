@@ -171,7 +171,10 @@ class PPOTrainer:
 
         self.env = build_env(cfg.env, mode="old")
         self.actor = self._build_actor().to(self.device)
-        self.critic = ValueCritic(cfg.env.obs_dim).to(self.device)
+        self.critic = ValueCritic(
+            cfg.env.obs_dim,
+            hidden_dims=cfg.network.critic_hidden_dims,
+        ).to(self.device)
         self.optimizer = self._make_optimizer()
         self.obs_normalizer = RunningNormalizer(cfg.env.obs_dim)
 

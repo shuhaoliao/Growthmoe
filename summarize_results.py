@@ -37,6 +37,44 @@ def _detect_env_name(group_dir: Path) -> str:
     return "multi_region_nav"
 
 
+def _load_json_if_exists(path: Path) -> dict[str, object] | None:
+    if not path.exists():
+        return None
+    return load_json(path)
+
+
+def _load_or_evaluate(
+    *,
+    checkpoint_path: Path,
+    run_dir: Path,
+    json_path: Path,
+    env_mode: str,
+    num_episodes: int,
+    device: str,
+    gif_path: Path,
+    map_path: Path,
+    fps: int = 8,
+) -> dict[str, object]:
+    existing = _load_json_if_exists(json_path)
+    if existing is not None:
+        return existing
+
+    metrics = evaluate_policy(
+        checkpoint_path=checkpoint_path,
+        env_mode=env_mode,
+        num_episodes=num_episodes,
+        deterministic=True,
+        device=device,
+        gif_path=gif_path,
+        map_path=map_path,
+        fps=fps,
+    )
+    json_path.parent.mkdir(parents=True, exist_ok=True)
+    with json_path.open("w", encoding="utf-8") as f:
+        json.dump(metrics, f, ensure_ascii=False, indent=2)
+    return metrics
+
+
 def summarize_group(group_dir: str | Path, device: str = "cuda") -> dict[str, object]:
     group_dir = Path(group_dir)
     summary_dir = group_dir / "summary"
@@ -54,6 +92,11 @@ def summarize_group(group_dir: str | Path, device: str = "cuda") -> dict[str, ob
         "gpo_only": group_dir / "gpo_only",
         "moe_only": group_dir / "moe_only",
         "full": group_dir / "full",
+    }
+    run_cfgs = {
+        name: load_json(run_dir / "config.json")
+        for name, run_dir in run_dirs.items()
+        if (run_dir / "config.json").exists()
     }
 
     reward_plot = summary_dir / "reward_comparison_acquisition.png"
@@ -96,11 +139,14 @@ def summarize_group(group_dir: str | Path, device: str = "cuda") -> dict[str, ob
     for name, checkpoint in checkpoints.items():
         gif_path = summary_dir / f"{name}_{primary_rollout_label}.gif"
         map_path = summary_dir / f"{name}_{primary_rollout_label}.png"
-        results[name] = evaluate_policy(
+        eval_episodes = int(run_cfgs.get(name, {}).get("eval_episodes", 12))
+        json_path = run_dirs[name] / "final_eval" / "final_policy.json"
+        results[name] = _load_or_evaluate(
             checkpoint_path=checkpoint,
+            run_dir=run_dirs[name],
+            json_path=json_path,
             env_mode=primary_mode,
-            num_episodes=12,
-            deterministic=True,
+            num_episodes=eval_episodes,
             device=device,
             gif_path=gif_path,
             map_path=map_path,
@@ -108,17 +154,18 @@ def summarize_group(group_dir: str | Path, device: str = "cuda") -> dict[str, ob
         )
         final_policy_visuals[name] = {
             "title": primary_rollout_title,
-            "gif_path": str(gif_path),
-            "image_path": str(map_path),
+            "gif_path": str(results[name].get("gif_path", gif_path)),
+            "image_path": str(results[name].get("map_path", map_path)),
         }
 
     plastic_checkpoint = run_dirs["full"] / "relearning_plastic" / "relearning_plastic_end.pt"
     if plastic_checkpoint.exists():
-        results["full_plastic_new"] = evaluate_policy(
+        results["full_plastic_new"] = _load_or_evaluate(
             checkpoint_path=plastic_checkpoint,
+            run_dir=run_dirs["full"],
+            json_path=run_dirs["full"] / "final_eval" / "plastic_new.json",
             env_mode="new",
-            num_episodes=12,
-            deterministic=True,
+            num_episodes=int(run_cfgs.get("full", {}).get("eval_episodes", 12)),
             device=device,
             gif_path=summary_dir / "full_plastic_new.gif",
             map_path=summary_dir / "full_plastic_new_map.png",
@@ -127,11 +174,12 @@ def summarize_group(group_dir: str | Path, device: str = "cuda") -> dict[str, ob
 
     mature_checkpoint = run_dirs["full"] / "relearning_mature" / "latest.pt"
     if mature_checkpoint.exists():
-        results["full_mature_new"] = evaluate_policy(
+        results["full_mature_new"] = _load_or_evaluate(
             checkpoint_path=mature_checkpoint,
+            run_dir=run_dirs["full"],
+            json_path=run_dirs["full"] / "final_eval" / "mature_new.json",
             env_mode="new",
-            num_episodes=12,
-            deterministic=True,
+            num_episodes=int(run_cfgs.get("full", {}).get("eval_episodes", 12)),
             device=device,
             gif_path=summary_dir / "full_mature_new.gif",
             map_path=summary_dir / "full_mature_new_map.png",
