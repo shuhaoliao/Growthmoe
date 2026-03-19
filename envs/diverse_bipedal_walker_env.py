@@ -64,13 +64,13 @@ class DiverseBipedalWalkerEnv(BipedalWalker):
     def describe_mode(self) -> str:
         descriptions = {
             "old": (
-                "Single-task terrain benchmark with flat, steep uphill, steep downhill, and rough segments. "
+                "Single-task terrain benchmark with flat, uphill, downhill, and rough segments. "
                 "This mode emphasizes whether MoE routes specialize across terrain regimes "
                 "and whether growth accelerates early learning."
             ),
             "new": (
-                "A harder variant of the same terrain-mixture benchmark with longer steep ramps, "
-                "denser pits, rougher undulations, and more pronounced terrain features."
+                "A harder variant of the same terrain-mixture benchmark with denser pits, "
+                "rougher undulations, and more frequent terrain switches."
             ),
         }
         return descriptions[self.mode]
@@ -115,8 +115,8 @@ class DiverseBipedalWalkerEnv(BipedalWalker):
         if self.mode == "new":
             return {
                 "weights": np.asarray([0.18, 0.25, 0.22, 0.35], dtype=np.float64),
-                "section_min": max(14, section_min - 2),
-                "section_max": max(section_min, section_max - 2),
+                "section_min": max(10, section_min - 4),
+                "section_max": max(section_min - 2, section_max - 4),
                 "slope_scale": float(self.config.bipedal_new_slope_scale),
                 "roughness": float(self.config.bipedal_new_roughness),
                 "flat_noise": float(self.config.bipedal_flat_noise) * 1.35,
@@ -211,7 +211,7 @@ class DiverseBipedalWalkerEnv(BipedalWalker):
                 np.clip(
                     base_angle_deg * float(settings["slope_scale"]),
                     settings["slope_angle_min_deg"],
-                    settings["slope_angle_max_deg"] - 2.0,
+                    settings["slope_angle_max_deg"],
                 )
             )
             slope_step = math.tan(math.radians(angle_deg)) * TERRAIN_STEP

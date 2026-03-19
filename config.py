@@ -37,12 +37,12 @@ class EnvConfig:
     waypoint_bonus: float = 4.0
     success_bonus: float = 15.0
     out_of_bounds_penalty: float = 7.0
-    bipedal_section_min_steps: int = 26
-    bipedal_section_max_steps: int = 44
+    bipedal_section_min_steps: int = 18
+    bipedal_section_max_steps: int = 30
     bipedal_old_slope_scale: float = 1.0
-    bipedal_new_slope_scale: float = 1.25
-    bipedal_slope_angle_min_deg: float = 30.0
-    bipedal_slope_angle_max_deg: float = 45.0
+    bipedal_new_slope_scale: float = 1.0
+    bipedal_slope_angle_min_deg: float = 33.0
+    bipedal_slope_angle_max_deg: float = 37.0
     bipedal_old_roughness: float = 1.0
     bipedal_new_roughness: float = 1.4
     bipedal_flat_noise: float = 0.008
@@ -190,7 +190,7 @@ def _apply_bipedal_defaults(cfg: ExperimentConfig, preset: str) -> None:
         cfg.ppo.update_epochs = 8
     else:
         cfg.stage_steps = {
-            "acquisition": 1_000_000,
+            "acquisition": 2_000_000,
             "maturation": 200_000,
             "relearning": 300_000,
         }
