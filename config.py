@@ -37,14 +37,18 @@ class EnvConfig:
     waypoint_bonus: float = 4.0
     success_bonus: float = 15.0
     out_of_bounds_penalty: float = 7.0
-    bipedal_section_min_steps: int = 18
-    bipedal_section_max_steps: int = 30
+    bipedal_section_min_steps: int = 26
+    bipedal_section_max_steps: int = 44
     bipedal_old_slope_scale: float = 1.0
     bipedal_new_slope_scale: float = 1.25
+    bipedal_slope_angle_min_deg: float = 30.0
+    bipedal_slope_angle_max_deg: float = 45.0
     bipedal_old_roughness: float = 1.0
     bipedal_new_roughness: float = 1.4
     bipedal_flat_noise: float = 0.008
-    bipedal_height_clip: float = 1.2
+    bipedal_height_clip: float = 6.0
+    bipedal_rough_pit_depth: float = 0.32
+    bipedal_rough_pit_spacing: int = 4
     seed: int = 42
 
     @property

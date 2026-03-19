@@ -64,13 +64,13 @@ class DiverseBipedalWalkerEnv(BipedalWalker):
     def describe_mode(self) -> str:
         descriptions = {
             "old": (
-                "Single-task terrain benchmark with flat, uphill, downhill, and rough segments. "
+                "Single-task terrain benchmark with flat, steep uphill, steep downhill, and rough segments. "
                 "This mode emphasizes whether MoE routes specialize across terrain regimes "
                 "and whether growth accelerates early learning."
             ),
             "new": (
-                "A harder variant of the same terrain-mixture benchmark with steeper slopes, "
-                "rougher undulations, and more frequent terrain switches."
+                "A harder variant of the same terrain-mixture benchmark with longer steep ramps, "
+                "denser pits, rougher undulations, and more pronounced terrain features."
             ),
         }
         return descriptions[self.mode]
@@ -115,12 +115,16 @@ class DiverseBipedalWalkerEnv(BipedalWalker):
         if self.mode == "new":
             return {
                 "weights": np.asarray([0.18, 0.25, 0.22, 0.35], dtype=np.float64),
-                "section_min": max(10, section_min - 4),
-                "section_max": max(section_min - 2, section_max - 4),
+                "section_min": max(14, section_min - 2),
+                "section_max": max(section_min, section_max - 2),
                 "slope_scale": float(self.config.bipedal_new_slope_scale),
                 "roughness": float(self.config.bipedal_new_roughness),
                 "flat_noise": float(self.config.bipedal_flat_noise) * 1.35,
                 "height_clip": float(self.config.bipedal_height_clip),
+                "slope_angle_min_deg": float(self.config.bipedal_slope_angle_min_deg),
+                "slope_angle_max_deg": float(self.config.bipedal_slope_angle_max_deg),
+                "rough_pit_depth": float(self.config.bipedal_rough_pit_depth) * 1.25,
+                "rough_pit_spacing": max(2, int(self.config.bipedal_rough_pit_spacing) - 1),
             }
         return {
             "weights": np.asarray([0.30, 0.24, 0.24, 0.22], dtype=np.float64),
@@ -130,6 +134,10 @@ class DiverseBipedalWalkerEnv(BipedalWalker):
             "roughness": float(self.config.bipedal_old_roughness),
             "flat_noise": float(self.config.bipedal_flat_noise),
             "height_clip": float(self.config.bipedal_height_clip),
+            "slope_angle_min_deg": float(self.config.bipedal_slope_angle_min_deg),
+            "slope_angle_max_deg": float(self.config.bipedal_slope_angle_max_deg),
+            "rough_pit_depth": float(self.config.bipedal_rough_pit_depth),
+            "rough_pit_spacing": int(self.config.bipedal_rough_pit_spacing),
         }
 
     def _append_section_record(self, name: str, start_idx: int, end_idx: int) -> None:
@@ -192,35 +200,76 @@ class DiverseBipedalWalkerEnv(BipedalWalker):
                 values.append(current_y)
             return values, current_y
 
-        if terrain_name == "uphill":
-            slope = float(self.np_random.uniform(0.018, 0.032) * settings["slope_scale"])
-            target_y = center_y + 0.45
+        if terrain_name in {"uphill", "downhill"}:
+            base_angle_deg = float(
+                self.np_random.uniform(
+                    settings["slope_angle_min_deg"],
+                    settings["slope_angle_max_deg"],
+                )
+            )
+            angle_deg = float(
+                np.clip(
+                    base_angle_deg * float(settings["slope_scale"]),
+                    settings["slope_angle_min_deg"],
+                    settings["slope_angle_max_deg"] - 2.0,
+                )
+            )
+            slope_step = math.tan(math.radians(angle_deg)) * TERRAIN_STEP
+            if terrain_name == "downhill":
+                slope_step *= -1.0
+            section_origin = current_y
+            local_clip = max(clip_delta, abs(slope_step) * section_length + 0.75)
+            local_min = section_origin - local_clip
+            local_max = section_origin + local_clip
+            section_bias = 0.0
+            if terrain_name == "uphill":
+                section_bias = 0.20 * clip_delta
+            else:
+                section_bias = -0.20 * clip_delta
             for _ in range(section_length):
-                drift = 0.025 * (target_y - current_y)
+                drift = 0.01 * ((center_y + section_bias) - current_y)
                 noise = float(self.np_random.uniform(-0.7 * flat_noise, 0.7 * flat_noise))
-                current_y += slope + drift + noise
-                current_y = float(np.clip(current_y, center_y - clip_delta, center_y + clip_delta))
-                values.append(current_y)
-            return values, current_y
-
-        if terrain_name == "downhill":
-            slope = float(self.np_random.uniform(0.018, 0.032) * settings["slope_scale"])
-            target_y = center_y - 0.45
-            for _ in range(section_length):
-                drift = 0.025 * (target_y - current_y)
-                noise = float(self.np_random.uniform(-0.7 * flat_noise, 0.7 * flat_noise))
-                current_y += -slope + drift + noise
-                current_y = float(np.clip(current_y, center_y - clip_delta, center_y + clip_delta))
+                current_y += slope_step + drift + noise
+                current_y = float(np.clip(current_y, local_min, local_max))
                 values.append(current_y)
             return values, current_y
 
         amplitude = float(self.np_random.uniform(0.08, 0.14) * settings["roughness"])
         amplitude_secondary = amplitude * float(self.np_random.uniform(0.4, 0.8))
-        frequency = float(self.np_random.uniform(1.2, 2.2))
-        secondary_frequency = frequency * float(self.np_random.uniform(2.0, 3.6))
+        frequency = float(self.np_random.uniform(1.8, 3.2))
+        secondary_frequency = frequency * float(self.np_random.uniform(2.4, 4.2))
         phase_a = float(self.np_random.uniform(0.0, 2.0 * math.pi))
         phase_b = float(self.np_random.uniform(0.0, 2.0 * math.pi))
         section_origin = current_y
+        local_clip = max(
+            clip_delta,
+            amplitude + amplitude_secondary + 4.0 * float(settings["rough_pit_depth"]),
+        )
+        local_min = section_origin - local_clip
+        local_max = section_origin + local_clip
+        pit_spacing = max(2, int(settings["rough_pit_spacing"]))
+        pit_count = max(2, section_length // pit_spacing)
+        candidate_centers = np.arange(2, max(3, section_length - 2))
+        if len(candidate_centers) >= pit_count:
+            pit_centers = sorted(
+                int(value)
+                for value in self.np_random.choice(candidate_centers, size=pit_count, replace=False)
+            )
+        else:
+            pit_centers = [int(value) for value in candidate_centers]
+        pit_specs = [
+            (
+                center,
+                float(self.np_random.uniform(0.9, 1.8)),
+                float(
+                    self.np_random.uniform(
+                        0.7 * settings["rough_pit_depth"],
+                        1.3 * settings["rough_pit_depth"],
+                    )
+                ),
+            )
+            for center in pit_centers
+        ]
 
         for step_idx in range(section_length):
             progress = (step_idx + 1) / max(section_length, 1)
@@ -228,10 +277,14 @@ class DiverseBipedalWalkerEnv(BipedalWalker):
             wave += amplitude_secondary * math.sin(
                 2.0 * math.pi * secondary_frequency * progress + phase_b
             )
-            target = section_origin + wave + 0.20 * (center_y - section_origin) * progress
-            noise = float(self.np_random.uniform(-1.6 * flat_noise, 1.6 * flat_noise))
-            current_y = 0.68 * current_y + 0.32 * target + noise
-            current_y = float(np.clip(current_y, center_y - clip_delta, center_y + clip_delta))
+            pits = 0.0
+            for center, width, depth in pit_specs:
+                distance = (step_idx - center) / max(width, 1e-6)
+                pits -= depth * math.exp(-0.5 * distance * distance)
+            target = section_origin + wave + pits + 0.10 * (center_y - section_origin) * progress
+            noise = float(self.np_random.uniform(-1.9 * flat_noise, 1.9 * flat_noise))
+            current_y = 0.52 * current_y + 0.48 * target + noise
+            current_y = float(np.clip(current_y, local_min, local_max))
             values.append(current_y)
         return values, current_y
 
