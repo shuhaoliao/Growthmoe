@@ -198,11 +198,15 @@ class DiverseBipedalWalkerEnv(BipedalWalker):
 
         if terrain_name == "uphill":
             angle_deg = float(
-                self.np_random.uniform(
+                np.clip(
+                    self.np_random.uniform(
+                        settings["slope_angle_min_deg"],
+                        settings["slope_angle_max_deg"],
+                    )
+                    * settings["slope_scale"],
                     settings["slope_angle_min_deg"],
                     settings["slope_angle_max_deg"],
                 )
-                * settings["slope_scale"]
             )
             slope = math.tan(math.radians(angle_deg)) * TERRAIN_STEP
             section_origin = current_y
@@ -219,11 +223,15 @@ class DiverseBipedalWalkerEnv(BipedalWalker):
 
         if terrain_name == "downhill":
             angle_deg = float(
-                self.np_random.uniform(
+                np.clip(
+                    self.np_random.uniform(
+                        settings["slope_angle_min_deg"],
+                        settings["slope_angle_max_deg"],
+                    )
+                    * settings["slope_scale"],
                     settings["slope_angle_min_deg"],
                     settings["slope_angle_max_deg"],
                 )
-                * settings["slope_scale"]
             )
             slope = math.tan(math.radians(angle_deg)) * TERRAIN_STEP
             section_origin = current_y
