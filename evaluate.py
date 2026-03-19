@@ -10,14 +10,14 @@ from PIL import Image
 
 from algos.ppo import PPOTrainer
 from config import config_from_dict
-from envs.multi_region_nav_env import MultiRegionNavEnv
+from envs import build_env
 from utils.analysis import init_usage_stats, summarize_usage_stats, update_usage_stats
 from utils.schedules import apply_action_growth, build_schedule_snapshot, clip_action, resolved_action_limit
 
 
 def _rollout_episode(
     trainer: PPOTrainer,
-    env: MultiRegionNavEnv,
+    env,
     schedule: dict[str, float],
     deterministic: bool,
     capture_frames: bool = False,
@@ -157,7 +157,7 @@ def evaluate_policy(
     trainer = PPOTrainer(cfg, run_dir=Path(checkpoint_path).parent.parent, device=device)
     trainer.load_checkpoint(checkpoint_path, reset_optimizer=True)
 
-    env = MultiRegionNavEnv(mode=env_mode, config=cfg.env)
+    env = build_env(cfg.env, mode=env_mode)
     env.reset(seed=cfg.seed + 999)
 
     reward_list: list[float] = []
@@ -167,7 +167,14 @@ def evaluate_policy(
     coverage_list: list[float] = []
     goals_visited_list: list[float] = []
     path_length_list: list[float] = []
-    usage_stats = init_usage_stats(cfg.moe.num_experts) if cfg.use_moe else None
+    usage_stats = (
+        init_usage_stats(
+            cfg.moe.num_experts,
+            region_labels=list(getattr(env, "region_labels", [])),
+        )
+        if cfg.use_moe
+        else None
+    )
     completed = 0
     fixed_progress = float(checkpoint.get("schedule_anchor", 1.0))
     schedule = build_schedule_snapshot(

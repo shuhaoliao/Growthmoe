@@ -47,6 +47,7 @@ class MultiRegionNavEnv(gym.Env):
     """
 
     metadata = {"render_modes": ["rgb_array"]}
+    region_labels = ANALYSIS_REGION_NAMES
 
     def __init__(self, mode: str = "old", config: EnvConfig | None = None):
         super().__init__()

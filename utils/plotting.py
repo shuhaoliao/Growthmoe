@@ -102,13 +102,18 @@ def plot_experiment(run_dir: str | Path) -> None:
             "Environment Steps",
             "Control Cost",
         )
+        coverage_title = (
+            "Terrain Coverage"
+            if cfg.env.env_name == "bipedal_diverse"
+            else "Goal Coverage"
+        )
         _save_line_plot(
             plot_dir / "coverage_curve.png",
             [
                 _series(acquisition_rows, "global_env_step", "coverage_mean") + ("acquisition",),
                 _series(maturation_rows, "global_env_step", "coverage_mean") + ("maturation",),
             ],
-            "Goal Coverage",
+            coverage_title,
             "Environment Steps",
             "Coverage Ratio",
         )
@@ -142,7 +147,8 @@ def plot_experiment(run_dir: str | Path) -> None:
         plt.figure(figsize=(7, 4))
         plt.imshow(heatmap, aspect="auto", cmap="viridis")
         plt.colorbar(label="Average Gate Weight")
-        plt.yticks(np.arange(len(REGION_LABELS)), REGION_LABELS)
+        region_labels = summary.get("region_labels", REGION_LABELS)
+        plt.yticks(np.arange(len(region_labels)), region_labels)
         plt.xlabel("Expert")
         plt.title("Region-Expert Usage Heatmap")
         plt.tight_layout()
@@ -211,4 +217,31 @@ def plot_reward_comparison(
         title=f"{stage_name.capitalize()} Reward Comparison",
         xlabel="Environment Steps",
         ylabel="Episode Reward",
+    )
+
+
+def plot_metric_comparison(
+    run_specs: list[tuple[str, str | Path]],
+    output_path: str | Path,
+    *,
+    stage_name: str = "acquisition",
+    metric_key: str,
+    title: str,
+    ylabel: str,
+) -> None:
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    curves: list[tuple[np.ndarray, np.ndarray, str]] = []
+    for label, run_dir in run_specs:
+        run_dir = Path(run_dir)
+        rows = _read_csv(run_dir / stage_name / "metrics.csv")
+        if not rows:
+            continue
+        curves.append(_series(rows, "global_env_step", metric_key) + (label,))
+    _save_line_plot(
+        output_path=output_path,
+        curves=curves,
+        title=title,
+        xlabel="Environment Steps",
+        ylabel=ylabel,
     )

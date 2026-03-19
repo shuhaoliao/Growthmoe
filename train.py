@@ -7,6 +7,7 @@ from pathlib import Path
 
 from algos.ppo import PPOTrainer
 from config import config_to_dict, make_config
+from envs import SUPPORTED_ENVS
 from utils.plotting import plot_experiment
 
 
@@ -37,7 +38,7 @@ def _require_checkpoint(run_dir: Path, explicit_resume: str | None, stage_name: 
 
 
 def run_training(args: argparse.Namespace) -> Path:
-    cfg = make_config(args.exp, args.preset, seed=args.seed)
+    cfg = make_config(args.exp, args.preset, seed=args.seed, env_name=args.env)
     run_dir = Path(args.run_dir) if args.run_dir else _default_run_dir(args.exp, args.seed)
     _save_run_config(run_dir, cfg)
 
@@ -123,6 +124,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--device", type=str, default="cpu")
     parser.add_argument("--run-dir", type=str, default=None)
+    parser.add_argument("--env", type=str, default="multi_region_nav", choices=list(SUPPORTED_ENVS))
     return parser.parse_args()
 
 

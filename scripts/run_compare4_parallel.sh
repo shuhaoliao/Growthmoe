@@ -6,6 +6,7 @@ SEED="42"
 DEVICE="cuda"
 OUTPUT_ROOT="runs"
 TAG="compare4_parallel"
+ENV_NAME="multi_region_nav"
 PYTHON_BIN="python"
 SKIP_SUMMARY="0"
 
@@ -20,6 +21,7 @@ Options:
   --preset <quick|full>     Training budget preset. Default: full
   --seed <int>              Random seed. Default: 42
   --device <cpu|cuda>       Device passed to train.py. Default: cuda
+  --env <name>              Environment name. Default: multi_region_nav
   --output-root <path>      Root directory for run groups. Default: runs
   --tag <name>              Group tag in the timestamped folder. Default: compare4_parallel
   --python <bin>            Python executable. Default: python
@@ -43,6 +45,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --device)
       DEVICE="$2"
+      shift 2
+      ;;
+    --env)
+      ENV_NAME="$2"
       shift 2
       ;;
     --output-root)
@@ -78,7 +84,7 @@ GROUP_DIR="${OUTPUT_ROOT}/${TIMESTAMP}_${TAG}_seed${SEED}"
 mkdir -p "${GROUP_DIR}"
 
 echo "Starting parallel run group: ${GROUP_DIR}"
-echo "Preset=${PRESET} Device=${DEVICE} Seed=${SEED}"
+echo "Preset=${PRESET} Device=${DEVICE} Seed=${SEED} Env=${ENV_NAME}"
 
 declare -a PIDS=()
 declare -a NAMES=()
@@ -106,6 +112,7 @@ run_exp() {
     --stage "${stage_name}" \
     --seed "${SEED}" \
     --device "${DEVICE}" \
+    --env "${ENV_NAME}" \
     --run-dir "${run_dir}" \
     > "${console_log}" 2>&1 &
 
@@ -113,10 +120,15 @@ run_exp() {
   NAMES+=("${exp_name}")
 }
 
+FULL_STAGE="all"
+if [[ "${ENV_NAME}" == "bipedal_diverse" ]]; then
+  FULL_STAGE="acquisition"
+fi
+
 run_exp "baseline" "acquisition"
 run_exp "gpo_only" "acquisition"
 run_exp "moe_only" "acquisition"
-run_exp "full" "all"
+run_exp "full" "${FULL_STAGE}"
 
 for idx in "${!PIDS[@]}"; do
   pid="${PIDS[$idx]}"
@@ -140,6 +152,7 @@ manifest = {
     "device": "${DEVICE}",
     "preset": "${PRESET}",
     "seed": int("${SEED}"),
+    "env": "${ENV_NAME}",
     "runs": {
         "baseline": str(group_dir / "baseline"),
         "gpo_only": str(group_dir / "gpo_only"),

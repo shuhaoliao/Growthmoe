@@ -13,6 +13,7 @@ Thumbs.db
 # Experiment outputs
 runs/
 smoke_run/
+smoke_*/
 *.pt
 *.jsonl
 

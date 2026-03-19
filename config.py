@@ -6,6 +6,7 @@ from typing import Any
 
 @dataclass
 class EnvConfig:
+    env_name: str = "multi_region_nav"
     world_min: float = -5.0
     world_max: float = 5.0
     dt: float = 0.1
@@ -36,10 +37,22 @@ class EnvConfig:
     waypoint_bonus: float = 4.0
     success_bonus: float = 15.0
     out_of_bounds_penalty: float = 7.0
+    bipedal_section_min_steps: int = 18
+    bipedal_section_max_steps: int = 30
+    bipedal_old_slope_scale: float = 1.0
+    bipedal_new_slope_scale: float = 1.25
+    bipedal_old_roughness: float = 1.0
+    bipedal_new_roughness: float = 1.4
+    bipedal_flat_noise: float = 0.008
+    bipedal_height_clip: float = 1.2
     seed: int = 42
 
     @property
     def obs_dim(self) -> int:
+        if self.env_name == "bipedal_diverse":
+            return 24
+        if self.env_name != "multi_region_nav":
+            raise ValueError(f"Unsupported env_name for obs_dim: {self.env_name}")
         base_state = 2 + 2 + 2
         goal_features = self.max_goals_supported * 2
         goal_masks = self.max_goals_supported * 2
@@ -49,6 +62,10 @@ class EnvConfig:
 
     @property
     def action_dim(self) -> int:
+        if self.env_name == "bipedal_diverse":
+            return 4
+        if self.env_name != "multi_region_nav":
+            raise ValueError(f"Unsupported env_name for action_dim: {self.env_name}")
         return 2
 
 
@@ -144,9 +161,15 @@ def _make_stage_steps(preset: str) -> dict[str, int]:
     }
 
 
-def make_config(exp_name: str, preset: str = "quick", seed: int = 42) -> ExperimentConfig:
+def make_config(
+    exp_name: str,
+    preset: str = "quick",
+    seed: int = 42,
+    env_name: str = "multi_region_nav",
+) -> ExperimentConfig:
     cfg = ExperimentConfig(exp_name=exp_name, preset=preset, seed=seed)
     cfg.stage_steps = _make_stage_steps(preset)
+    cfg.env.env_name = env_name
     cfg.env.seed = seed
     cfg.growth.action_limit = cfg.env.action_limit
 

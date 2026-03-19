@@ -10,7 +10,7 @@ import torch
 from torch import nn
 
 from config import ExperimentConfig, config_to_dict
-from envs.multi_region_nav_env import MultiRegionNavEnv
+from envs import build_env
 from models.critic import ValueCritic
 from models.moe_policy import MLPActor, MoEPolicy
 from utils.analysis import init_usage_stats, save_usage_summary, summarize_usage_stats, update_usage_stats
@@ -169,7 +169,7 @@ class PPOTrainer:
         self.device = torch.device(device)
         set_global_seed(cfg.seed)
 
-        self.env = MultiRegionNavEnv(mode="old", config=cfg.env)
+        self.env = build_env(cfg.env, mode="old")
         self.actor = self._build_actor().to(self.device)
         self.critic = ValueCritic(cfg.env.obs_dim).to(self.device)
         self.optimizer = self._make_optimizer()
@@ -191,6 +191,39 @@ class PPOTrainer:
         self._episode_length = 0
         self._episode_control = 0.0
 
+    @staticmethod
+    def _count_parameters(module: nn.Module) -> int:
+        return sum(parameter.numel() for parameter in module.parameters())
+
+    def _matched_mlp_hidden_dims(self) -> list[int]:
+        target_actor = MoEPolicy(
+            obs_dim=self.cfg.env.obs_dim,
+            action_dim=self.cfg.env.action_dim,
+            num_experts=self.cfg.moe.num_experts,
+            shared_hidden=self.cfg.moe.shared_hidden,
+            expert_hidden=self.cfg.moe.expert_hidden,
+            log_std_init=self.cfg.moe.log_std_init,
+        )
+        target_params = self._count_parameters(target_actor)
+        obs_dim = self.cfg.env.obs_dim
+        action_dim = self.cfg.env.action_dim
+
+        best_gap = float("inf")
+        best_dims = [128, 128]
+        for hidden_a in range(64, 321, 8):
+            for hidden_b in range(64, 321, 8):
+                candidate_params = (
+                    (obs_dim * hidden_a + hidden_a)
+                    + (hidden_a * hidden_b + hidden_b)
+                    + (hidden_b * action_dim + action_dim)
+                    + action_dim
+                )
+                gap = abs(candidate_params - target_params)
+                if gap < best_gap:
+                    best_gap = gap
+                    best_dims = [hidden_a, hidden_b]
+        return best_dims
+
     def _build_actor(self) -> nn.Module:
         if self.cfg.use_moe:
             return MoEPolicy(
@@ -201,7 +234,11 @@ class PPOTrainer:
                 expert_hidden=self.cfg.moe.expert_hidden,
                 log_std_init=self.cfg.moe.log_std_init,
             )
-        return MLPActor(self.cfg.env.obs_dim, self.cfg.env.action_dim)
+        return MLPActor(
+            self.cfg.env.obs_dim,
+            self.cfg.env.action_dim,
+            hidden_dims=self._matched_mlp_hidden_dims(),
+        )
 
     def _make_optimizer(self) -> torch.optim.Optimizer:
         parameters = [
@@ -539,7 +576,14 @@ class PPOTrainer:
         logger = ExperimentLogger(stage_dir)
         self._reset_env(env_mode)
 
-        usage_stats = init_usage_stats(self.cfg.moe.num_experts) if self.cfg.use_moe else None
+        usage_stats = (
+            init_usage_stats(
+                self.cfg.moe.num_experts,
+                region_labels=list(getattr(self.env, "region_labels", [])),
+            )
+            if self.cfg.use_moe
+            else None
+        )
         phase_step = 0
         latest_usage_summary: dict[str, Any] | None = None
 

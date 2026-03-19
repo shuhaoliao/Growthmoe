@@ -16,10 +16,16 @@ REGION_LABELS = [
 ]
 
 
-def init_usage_stats(num_experts: int, num_regions: int | None = None) -> dict[str, Any]:
-    num_regions = num_regions or len(REGION_LABELS)
+def init_usage_stats(
+    num_experts: int,
+    num_regions: int | None = None,
+    region_labels: list[str] | None = None,
+) -> dict[str, Any]:
+    labels = list(region_labels) if region_labels is not None else list(REGION_LABELS)
+    num_regions = num_regions or len(labels)
     return {
         "num_experts": int(num_experts),
+        "region_labels": labels[:num_regions],
         "expert_weight_sum": np.zeros(num_experts, dtype=np.float64),
         "region_expert_sum": np.zeros((num_regions, num_experts), dtype=np.float64),
         "region_counts": np.zeros(num_regions, dtype=np.float64),
@@ -59,12 +65,14 @@ def update_usage_stats(
 def summarize_usage_stats(
     stats: dict[str, Any], low_usage_threshold: float = 0.08
 ) -> dict[str, Any]:
+    region_labels = list(stats.get("region_labels", REGION_LABELS))
     if stats["samples"] <= 0:
         num_experts = int(stats["num_experts"])
         return {
             "overall_usage": [0.0] * num_experts,
-            "region_usage": [[0.0] * num_experts for _ in REGION_LABELS],
-            "region_counts": [0.0] * len(REGION_LABELS),
+            "region_usage": [[0.0] * num_experts for _ in region_labels],
+            "region_counts": [0.0] * len(region_labels),
+            "region_labels": region_labels,
             "gate_entropy_mean": 0.0,
             "dormant_experts": list(range(num_experts)),
         }
@@ -81,6 +89,7 @@ def summarize_usage_stats(
         "overall_usage": overall.tolist(),
         "region_usage": region_usage.tolist(),
         "region_counts": stats["region_counts"].tolist(),
+        "region_labels": region_labels,
         "gate_entropy_mean": float(gate_entropy_mean),
         "dormant_experts": dormant,
     }

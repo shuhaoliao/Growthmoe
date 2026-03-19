@@ -1,6 +1,9 @@
 # Growth MoE RL Prototype
 
-Minimal research prototype for testing growth-style MoE reinforcement learning on a lightweight continuous-control navigation task.
+Minimal research prototype for testing growth-style MoE reinforcement learning on either:
+
+- a lightweight continuous-control navigation task
+- a mixed-terrain `BipedalWalker` benchmark with flat, uphill, downhill, and rough segments
 
 This repo studies four questions:
 
@@ -14,6 +17,7 @@ This repo studies four questions:
 Core files:
 
 - `envs/multi_region_nav_env.py`: multi-goal 2D navigation environment
+- `envs/diverse_bipedal_walker_env.py`: mixed-terrain BipedalWalker benchmark for specialization and training-speed comparisons
 - `models/moe_policy.py`: MLP actor and MoE actor
 - `models/critic.py`: critic network
 - `algos/ppo.py`: lightweight PPO trainer
@@ -178,6 +182,18 @@ This runs:
 
 and then automatically generates summary plots, GIFs, and JSON outputs.
 
+For the mixed-terrain Bipedal benchmark:
+
+```bash
+python run_experiments.py --preset full --device cuda --tag compare4_bipedal --env bipedal_diverse
+```
+
+In `bipedal_diverse`, the compare-4 script stays on acquisition only so the comparison focuses on:
+
+- whether MoE specializes by terrain type
+- whether growth accelerates learning
+- whether the final policy is stronger on the same mixed-terrain task
+
 For a shorter smoke or trend run, use:
 
 ```bash
@@ -193,6 +209,12 @@ python train.py --exp moe_only --preset full --stage acquisition --device cuda
 python train.py --exp full --preset full --stage all --device cuda
 ```
 
+Mixed-terrain Bipedal example:
+
+```bash
+python train.py --exp full --preset full --stage acquisition --device cuda --env bipedal_diverse
+```
+
 ## Summarize And Visualize Results
 
 If you used `run_experiments.py`, summary is generated automatically. If you want to regenerate it:
@@ -204,9 +226,13 @@ python summarize_results.py --group-dir runs/<TIMESTAMP>_compare4_seed42 --devic
 This produces:
 
 - one reward comparison figure for the 4 methods
+- one success-rate comparison figure for the 4 methods
 - one old-task GIF for each method
 - `full` plastic vs mature GIFs on `new`
-- JSON summary with evaluation metrics, coverage, and output paths
+- JSON summaries focused on:
+  - final `avg_reward / success_rate`
+  - convergence speed
+  - MoE terrain specialization
 
 ## Where Final Visualizations Appear
 
@@ -219,6 +245,8 @@ runs/<TIMESTAMP>_compare4_seed42/summary/
 Key outputs:
 
 - `reward_comparison_acquisition.png`
+- `success_comparison_acquisition.png`
+- `focused_metrics.json`
 - `coverage_curve.png` inside each run's `plots/`
 - `baseline_old.gif`
 - `gpo_only_old.gif`
@@ -293,6 +321,32 @@ Run only the MoE baseline:
 
 ```bash
 python train.py --exp moe_only --preset quick --stage acquisition --device cuda
+```
+
+Run the mixed-terrain Bipedal benchmark:
+
+```bash
+python run_experiments.py --preset quick --device cuda --env bipedal_diverse --tag bipedal_quick
+```
+
+## Mixed-Terrain Bipedal Notes
+
+The `bipedal_diverse` environment keeps the original 24-D observation and 4-D action interface from Gymnasium's `BipedalWalker`, but replaces the terrain generator with section-wise terrain types:
+
+- `flat`
+- `uphill`
+- `downhill`
+- `rough`
+
+MoE usage is logged against these terrain labels so you can inspect whether experts differentiate by terrain regime.
+
+For fairer comparisons, the plain MLP actor used by `baseline` and `gpo_only` is automatically widened so its parameter count stays close to the MoE actor.
+
+Box2D is required for this benchmark. If your environment only has base Gymnasium installed, install the Box2D extra first:
+
+```bash
+pip install swig
+pip install "gymnasium[box2d]"
 ```
 
 ## Ignore Rules
