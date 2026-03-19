@@ -2,3 +2,4 @@ numpy
 matplotlib
 gymnasium
 pillow
+tensorboard

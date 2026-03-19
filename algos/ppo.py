@@ -576,7 +576,11 @@ class PPOTrainer:
     ) -> dict[str, Any]:
         del freeze_cfg
         stage_dir = ensure_dir(self.run_dir / stage_name)
-        logger = ExperimentLogger(stage_dir)
+        logger = ExperimentLogger(
+            stage_dir,
+            tensorboard_dir=self.run_dir / "tensorboard",
+            stage_prefix=stage_name,
+        )
         self._reset_env(env_mode)
 
         usage_stats = (
@@ -676,6 +680,7 @@ class PPOTrainer:
             phase_step=phase_step,
             usage_summary=latest_usage_summary,
         )
+        logger.close()
 
         return {
             "stage_dir": str(stage_dir),

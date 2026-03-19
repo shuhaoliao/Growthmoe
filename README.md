@@ -244,6 +244,28 @@ This produces:
   - MoE terrain specialization
   - final policy visualization paths
 
+## Monitor Training With TensorBoard
+
+Each stage writes TensorBoard scalars under:
+
+```text
+runs/<TIMESTAMP>_<TAG>_seed42/<EXP>/tensorboard/
+```
+
+Start TensorBoard from the repo root with:
+
+```bash
+tensorboard --logdir runs
+```
+
+Useful live curves include:
+
+- `acquisition/reward_mean`
+- `acquisition/success_rate`
+- `acquisition/policy_loss`
+- `acquisition/value_loss`
+- `acquisition/gate_entropy_mean`
+
 ## Where Final Visualizations Appear
 
 Inside:

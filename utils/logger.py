@@ -2,8 +2,14 @@ from __future__ import annotations
 
 import csv
 import json
+from numbers import Number
 from pathlib import Path
 from typing import Any
+
+try:
+    from torch.utils.tensorboard import SummaryWriter
+except Exception:  # pragma: no cover - optional dependency at runtime
+    SummaryWriter = None
 
 
 def ensure_dir(path: str | Path) -> Path:
@@ -27,16 +33,71 @@ def flatten_metrics(metrics: dict[str, Any]) -> dict[str, Any]:
 
 
 class ExperimentLogger:
-    def __init__(self, log_dir: str | Path):
+    def __init__(
+        self,
+        log_dir: str | Path,
+        tensorboard_dir: str | Path | None = None,
+        stage_prefix: str | None = None,
+    ):
         self.log_dir = ensure_dir(log_dir)
         self.jsonl_path = self.log_dir / "metrics.jsonl"
         self.csv_path = self.log_dir / "metrics.csv"
         self._csv_fieldnames: list[str] | None = None
+        self.stage_prefix = stage_prefix
+        self.tensorboard_dir = (
+            ensure_dir(tensorboard_dir) if tensorboard_dir is not None else None
+        )
+        self.tb_writer = (
+            SummaryWriter(log_dir=str(self.tensorboard_dir))
+            if SummaryWriter is not None and self.tensorboard_dir is not None
+            else None
+        )
+
+    def _log_tensorboard_scalars(
+        self, metrics: dict[str, Any], flat_metrics: dict[str, Any]
+    ) -> None:
+        if self.tb_writer is None:
+            return
+
+        stage_name = self.stage_prefix or str(metrics.get("stage", "train"))
+        global_step_raw = metrics.get("global_env_step")
+        phase_step_raw = metrics.get("phase_step")
+        global_step = (
+            int(float(global_step_raw))
+            if isinstance(global_step_raw, Number)
+            else None
+        )
+        phase_step = (
+            int(float(phase_step_raw))
+            if isinstance(phase_step_raw, Number)
+            else None
+        )
+
+        for key, value in flat_metrics.items():
+            if key in {"stage", "global_env_step", "phase_step"}:
+                continue
+            if isinstance(value, bool) or not isinstance(value, Number):
+                continue
+
+            scalar_value = float(value)
+            if global_step is not None:
+                self.tb_writer.add_scalar(
+                    f"{stage_name}/{key}",
+                    scalar_value,
+                    global_step,
+                )
+            if phase_step is not None:
+                self.tb_writer.add_scalar(
+                    f"phase/{stage_name}/{key}",
+                    scalar_value,
+                    phase_step,
+                )
 
     def log(self, metrics: dict[str, Any]) -> None:
         flat = flatten_metrics(metrics)
         with self.jsonl_path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(metrics, ensure_ascii=False) + "\n")
+        self._log_tensorboard_scalars(metrics, flat)
 
         if self._csv_fieldnames is None:
             self._csv_fieldnames = sorted(flat.keys())
@@ -72,3 +133,8 @@ class ExperimentLogger:
         path = self.log_dir / name
         with path.open("w", encoding="utf-8") as f:
             json.dump(payload, f, ensure_ascii=False, indent=2)
+
+    def close(self) -> None:
+        if self.tb_writer is not None:
+            self.tb_writer.flush()
+            self.tb_writer.close()

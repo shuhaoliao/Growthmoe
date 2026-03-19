@@ -131,3 +131,4 @@ def parse_args() -> argparse.Namespace:
 if __name__ == "__main__":
     run_dir = run_training(parse_args())
     print(f"Training finished. Run directory: {run_dir}")
+    print(f"TensorBoard log directory: {run_dir / 'tensorboard'}")
