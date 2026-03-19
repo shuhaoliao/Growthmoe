@@ -134,7 +134,34 @@ pip install torch
 
 ## Run The 4 Experiments
 
-### Recommended final run: batch run with timestamped output
+### Recommended on Ubuntu: parallel batch run with timestamped output
+
+The script below launches the four experiments in parallel and then runs summary generation automatically:
+
+```bash
+bash scripts/run_compare4_parallel.sh --preset full --device cuda --tag compare4_parallel
+```
+
+This creates a folder like:
+
+```text
+runs/<TIMESTAMP>_compare4_parallel_seed42/
+```
+
+Each experiment also gets a console log:
+
+- `baseline.console.log`
+- `gpo_only.console.log`
+- `moe_only.console.log`
+- `full.console.log`
+
+If you want to skip summary generation and run it later:
+
+```bash
+bash scripts/run_compare4_parallel.sh --preset full --device cuda --tag compare4_parallel --skip-summary
+```
+
+### Python batch runner: serial execution
 
 This script automatically creates a folder like `runs/20260318_212357_compare4_seed42/`.
 
@@ -154,7 +181,7 @@ and then automatically generates summary plots, GIFs, and JSON outputs.
 For a shorter smoke or trend run, use:
 
 ```bash
-python run_experiments.py --preset quick --device cuda --tag compare4_quick
+bash scripts/run_compare4_parallel.sh --preset quick --device cuda --tag compare4_quick
 ```
 
 ### Run each experiment manually
