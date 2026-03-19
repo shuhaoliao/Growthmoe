@@ -18,10 +18,36 @@ def _read_metrics(path: Path) -> list[dict[str, object]]:
         return list(csv.DictReader(f))
 
 
+def _detect_env_name(group_dir: Path) -> str:
+    manifest_path = group_dir / "manifest.json"
+    if manifest_path.exists():
+        manifest = load_json(manifest_path)
+        env_name = manifest.get("env")
+        if isinstance(env_name, str) and env_name:
+            return env_name
+
+    baseline_config = group_dir / "baseline" / "config.json"
+    if baseline_config.exists():
+        config_data = load_json(baseline_config)
+        env_block = config_data.get("env", {})
+        env_name = env_block.get("env_name")
+        if isinstance(env_name, str) and env_name:
+            return env_name
+
+    return "multi_region_nav"
+
+
 def summarize_group(group_dir: str | Path, device: str = "cuda") -> dict[str, object]:
     group_dir = Path(group_dir)
     summary_dir = group_dir / "summary"
     summary_dir.mkdir(parents=True, exist_ok=True)
+    env_name = _detect_env_name(group_dir)
+    primary_mode = "old"
+    primary_rollout_label = "final_policy"
+    if env_name == "bipedal_diverse":
+        primary_rollout_title = "Final mixed-terrain policy rollout"
+    else:
+        primary_rollout_title = "Final old-task policy rollout"
 
     run_dirs = {
         "baseline": group_dir / "baseline",
@@ -66,17 +92,25 @@ def summarize_group(group_dir: str | Path, device: str = "cuda") -> dict[str, ob
         checkpoints["full"] = run_dirs["full"] / "acquisition" / "stage_a_end.pt"
 
     results: dict[str, object] = {}
+    final_policy_visuals: dict[str, object] = {}
     for name, checkpoint in checkpoints.items():
+        gif_path = summary_dir / f"{name}_{primary_rollout_label}.gif"
+        map_path = summary_dir / f"{name}_{primary_rollout_label}.png"
         results[name] = evaluate_policy(
             checkpoint_path=checkpoint,
-            env_mode="old",
+            env_mode=primary_mode,
             num_episodes=12,
             deterministic=True,
             device=device,
-            gif_path=summary_dir / f"{name}_old.gif",
-            map_path=summary_dir / f"{name}_old_map.png",
+            gif_path=gif_path,
+            map_path=map_path,
             fps=8,
         )
+        final_policy_visuals[name] = {
+            "title": primary_rollout_title,
+            "gif_path": str(gif_path),
+            "image_path": str(map_path),
+        }
 
     plastic_checkpoint = run_dirs["full"] / "relearning_plastic" / "relearning_plastic_end.pt"
     if plastic_checkpoint.exists():
@@ -175,6 +209,7 @@ def summarize_group(group_dir: str | Path, device: str = "cuda") -> dict[str, ob
         "final_performance": final_performance,
         "convergence_speed": convergence_speed,
         "moe_specialization": moe_specialization,
+        "final_policy_visuals": final_policy_visuals,
         "plots": {
             "reward_comparison": str(reward_plot),
             "success_comparison": str(success_plot),
@@ -185,6 +220,7 @@ def summarize_group(group_dir: str | Path, device: str = "cuda") -> dict[str, ob
 
     summary = {
         "group_dir": str(group_dir),
+        "env_name": env_name,
         "reward_plot": str(reward_plot),
         "success_plot": str(success_plot),
         "focused_metrics": focused_summary,

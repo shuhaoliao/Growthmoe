@@ -165,6 +165,14 @@ If you want to skip summary generation and run it later:
 bash scripts/run_compare4_parallel.sh --preset full --device cuda --tag compare4_parallel --skip-summary
 ```
 
+For the mixed-terrain Bipedal benchmark, use the dedicated wrapper:
+
+```bash
+bash scripts/run_compare4_bipedal_parallel.sh --preset full --device cuda
+```
+
+This runs the same four methods in parallel on `bipedal_diverse` and keeps the summary outputs in the same timestamped folder layout.
+
 ### Python batch runner: serial execution
 
 This script automatically creates a folder like `runs/20260318_212357_compare4_seed42/`.
@@ -227,12 +235,13 @@ This produces:
 
 - one reward comparison figure for the 4 methods
 - one success-rate comparison figure for the 4 methods
-- one old-task GIF for each method
+- one final-policy GIF for each method
 - `full` plastic vs mature GIFs on `new`
 - JSON summaries focused on:
   - final `avg_reward / success_rate`
   - convergence speed
   - MoE terrain specialization
+  - final policy visualization paths
 
 ## Where Final Visualizations Appear
 
@@ -248,10 +257,10 @@ Key outputs:
 - `success_comparison_acquisition.png`
 - `focused_metrics.json`
 - `coverage_curve.png` inside each run's `plots/`
-- `baseline_old.gif`
-- `gpo_only_old.gif`
-- `moe_only_old.gif`
-- `full_old.gif`
+- `baseline_final_policy.gif`
+- `gpo_only_final_policy.gif`
+- `moe_only_final_policy.gif`
+- `full_final_policy.gif`
 - `full_plastic_new.gif`
 - `full_mature_new.gif`
 - `comparison_summary.json`
@@ -327,6 +336,12 @@ Run the mixed-terrain Bipedal benchmark:
 
 ```bash
 python run_experiments.py --preset quick --device cuda --env bipedal_diverse --tag bipedal_quick
+```
+
+Or with parallel shell launch:
+
+```bash
+bash scripts/run_compare4_bipedal_parallel.sh --preset quick --device cuda --tag bipedal_quick_parallel
 ```
 
 ## Mixed-Terrain Bipedal Notes
