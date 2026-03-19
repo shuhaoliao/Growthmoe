@@ -40,7 +40,8 @@ def _rollout_episode(
                 f"mode={env.mode}",
                 f"region={info['region_name']}",
                 f"step={episode_length}",
-                f"goal={info['goal_index'] + 1}/{info['num_goals']}",
+                f"visited={info['goals_visited']}/{info['num_goals']}",
+                f"coverage={info['coverage_ratio']:.2f}",
             ]
             if stage_description:
                 overlay.append(stage_description)
@@ -93,7 +94,8 @@ def _rollout_episode(
                 overlay_lines=[
                     f"done=1 success={int(info['success'])}",
                     f"steps={episode_length}",
-                    f"goals={info['goal_index'] + 1}/{info['num_goals']}",
+                    f"visited={info['goals_visited']}/{info['num_goals']}",
+                    f"coverage={info['coverage_ratio']:.2f}",
                     f"reward={episode_reward:.2f}",
                     f"control={episode_control:.2f}",
                 ],
@@ -105,6 +107,9 @@ def _rollout_episode(
         "length": episode_length,
         "control_cost": episode_control,
         "success": float(info["success"]),
+        "coverage": float(info["coverage_ratio"]),
+        "goals_visited": float(info["goals_visited"]),
+        "path_length": float(info["path_length"]),
         "gate_entropy": float(np.mean(gate_entropy_values)) if gate_entropy_values else 0.0,
     }
     episode_artifacts = {
@@ -159,11 +164,10 @@ def evaluate_policy(
     length_list: list[int] = []
     control_cost_list: list[float] = []
     success_list: list[float] = []
+    coverage_list: list[float] = []
+    goals_visited_list: list[float] = []
+    path_length_list: list[float] = []
     usage_stats = init_usage_stats(cfg.moe.num_experts) if cfg.use_moe else None
-
-    episode_reward = 0.0
-    episode_length = 0
-    episode_control = 0.0
     completed = 0
     fixed_progress = float(checkpoint.get("schedule_anchor", 1.0))
     schedule = build_schedule_snapshot(
@@ -188,6 +192,9 @@ def evaluate_policy(
         length_list.append(summary["length"])
         control_cost_list.append(summary["control_cost"])
         success_list.append(summary["success"])
+        coverage_list.append(summary["coverage"])
+        goals_visited_list.append(summary["goals_visited"])
+        path_length_list.append(summary["path_length"])
         if cfg.use_moe and usage_stats is not None:
             gate_records = np.asarray(artifacts["gate_weights"], dtype=np.float32)
             entropy_records = np.asarray(artifacts["gate_entropy_values"], dtype=np.float32)
@@ -214,6 +221,9 @@ def evaluate_policy(
         "avg_episode_length": float(np.mean(length_list)),
         "avg_reward": float(np.mean(reward_list)),
         "avg_control_cost": float(np.mean(control_cost_list)),
+        "avg_coverage": float(np.mean(coverage_list)),
+        "avg_goals_visited": float(np.mean(goals_visited_list)),
+        "avg_path_length": float(np.mean(path_length_list)),
         "gate_entropy": float(usage_summary["gate_entropy_mean"]) if usage_summary else 0.0,
         "task_mode": env_mode,
         "task_description": env.describe_mode(),

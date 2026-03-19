@@ -184,6 +184,9 @@ class PPOTrainer:
         self.success_window: deque[float] = deque(maxlen=100)
         self.length_window: deque[float] = deque(maxlen=100)
         self.control_window: deque[float] = deque(maxlen=100)
+        self.coverage_window: deque[float] = deque(maxlen=100)
+        self.goals_visited_window: deque[float] = deque(maxlen=100)
+        self.path_length_window: deque[float] = deque(maxlen=100)
         self._episode_reward = 0.0
         self._episode_length = 0
         self._episode_control = 0.0
@@ -236,11 +239,20 @@ class PPOTrainer:
         self._episode_length = 0
         self._episode_control = 0.0
 
-    def _record_episode(self, success: bool) -> None:
+    def _record_episode(
+        self,
+        success: bool,
+        coverage_ratio: float,
+        goals_visited: int,
+        path_length: float,
+    ) -> None:
         self.reward_window.append(self._episode_reward)
         self.success_window.append(float(success))
         self.length_window.append(float(self._episode_length))
         self.control_window.append(float(self._episode_control))
+        self.coverage_window.append(float(coverage_ratio))
+        self.goals_visited_window.append(float(goals_visited))
+        self.path_length_window.append(float(path_length))
         self._episode_reward = 0.0
         self._episode_length = 0
         self._episode_control = 0.0
@@ -322,7 +334,12 @@ class PPOTrainer:
             self.current_obs = next_obs
 
             if done:
-                self._record_episode(success=bool(info["success"]))
+                self._record_episode(
+                    success=bool(info["success"]),
+                    coverage_ratio=float(info.get("coverage_ratio", 0.0)),
+                    goals_visited=int(info.get("goals_visited", 0)),
+                    path_length=float(info.get("path_length", 0.0)),
+                )
                 self.current_obs, _ = self.env.reset()
 
         with torch.no_grad():
@@ -556,6 +573,15 @@ class PPOTrainer:
                 else 0.0,
                 "control_cost_mean": float(np.mean(self.control_window))
                 if self.control_window
+                else 0.0,
+                "coverage_mean": float(np.mean(self.coverage_window))
+                if self.coverage_window
+                else 0.0,
+                "goals_visited_mean": float(np.mean(self.goals_visited_window))
+                if self.goals_visited_window
+                else 0.0,
+                "path_length_mean": float(np.mean(self.path_length_window))
+                if self.path_length_window
                 else 0.0,
                 "beta": schedule["beta"],
                 "temperature": schedule["temperature"],

@@ -25,22 +25,28 @@ Core files:
 
 ### Old Task Distribution
 
-`old` is a multi-goal waypoint navigation task on maps with:
+`old` is an unordered multi-goal coverage task on maps with:
 
 - `normal`
 - `slippery`
 - `damping`
 
-Each episode samples 2 to 4 waypoint goals. The waypoint sequence is randomized and chosen to encourage the trajectory to cross multiple terrain regions instead of heading to a single endpoint.
+Each episode places one goal in each primary terrain. The policy succeeds only after visiting all terrain-specific targets, but the order does not matter. The reward therefore favors:
+
+- covering all goals
+- short paths
+- low control effort
+
+rather than following a fixed waypoint sequence.
 
 ### New Task Distribution
 
-`new` is the same multi-goal navigation problem, but with more:
+`new` is the same unordered coverage problem, but with one additional target in:
 
 - `disturbance`
 - `slippery + disturbance`
 
-This makes adaptation harder because the policy must complete the waypoint sequence while handling persistent external perturbations.
+This makes adaptation harder because the policy must still cover all goals while handling persistent external perturbations.
 
 ### What MoE Activation Means Here
 
@@ -49,6 +55,7 @@ The environment records terrain IDs at every step. During training and evaluatio
 - overall expert usage
 - expert usage by terrain type
 - gate entropy
+- goal coverage ratio
 
 This lets you inspect whether different experts are more active on `normal`, `slippery`, `damping`, or disturbance-heavy regions.
 
@@ -60,7 +67,7 @@ This lets you inspect whether different experts are more active on `normal`, `sl
 
 ## Upload This Repo To GitHub
 
-This workspace currently has no GitHub remote configured, so the repo cannot be pushed automatically from here. Use the following commands after creating an empty GitHub repo:
+Use the following commands after creating an empty GitHub repo:
 
 ```bash
 git add .
@@ -127,12 +134,12 @@ pip install torch
 
 ## Run The 4 Experiments
 
-### Recommended: batch run with timestamped output
+### Recommended final run: batch run with timestamped output
 
 This script automatically creates a folder like `runs/20260318_212357_compare4_seed42/`.
 
 ```bash
-python run_experiments.py --preset quick --device cuda --tag compare4
+python run_experiments.py --preset full --device cuda --tag compare4
 ```
 
 This runs:
@@ -144,13 +151,19 @@ This runs:
 
 and then automatically generates summary plots, GIFs, and JSON outputs.
 
+For a shorter smoke or trend run, use:
+
+```bash
+python run_experiments.py --preset quick --device cuda --tag compare4_quick
+```
+
 ### Run each experiment manually
 
 ```bash
-python train.py --exp baseline --preset quick --stage acquisition --device cuda
-python train.py --exp gpo_only --preset quick --stage acquisition --device cuda
-python train.py --exp moe_only --preset quick --stage acquisition --device cuda
-python train.py --exp full --preset quick --stage all --device cuda
+python train.py --exp baseline --preset full --stage acquisition --device cuda
+python train.py --exp gpo_only --preset full --stage acquisition --device cuda
+python train.py --exp moe_only --preset full --stage acquisition --device cuda
+python train.py --exp full --preset full --stage all --device cuda
 ```
 
 ## Summarize And Visualize Results
@@ -166,7 +179,7 @@ This produces:
 - one reward comparison figure for the 4 methods
 - one old-task GIF for each method
 - `full` plastic vs mature GIFs on `new`
-- JSON summary with evaluation metrics and output paths
+- JSON summary with evaluation metrics, coverage, and output paths
 
 ## Where Final Visualizations Appear
 
@@ -179,6 +192,7 @@ runs/<TIMESTAMP>_compare4_seed42/summary/
 Key outputs:
 
 - `reward_comparison_acquisition.png`
+- `coverage_curve.png` inside each run's `plots/`
 - `baseline_old.gif`
 - `gpo_only_old.gif`
 - `moe_only_old.gif`
@@ -215,6 +229,16 @@ The code extends the original GPO idea in three directions:
 - action growth
 - routing-capacity growth
 - plasticity/maturation growth
+
+## Current Goal Semantics
+
+The current environment no longer uses ordered waypoint tracking.
+
+- `old`: visit one goal in each of `normal`, `slippery`, and `damping`
+- `new`: visit those three goals plus one disturbance-heavy goal
+- success: all goals visited
+- order: irrelevant
+- reward: goal coverage bonus + nearest-unvisited progress shaping - path/control/time costs
 
 ## Current Default Budget
 

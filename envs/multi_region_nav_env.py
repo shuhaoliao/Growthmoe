@@ -41,9 +41,9 @@ class MultiRegionNavEnv(gym.Env):
     """
     Lightweight continuous-control navigation environment.
 
-    The main goal is not physical realism. The environment instead creates a few
-    clearly different local dynamics so that a MoE actor has a chance to develop
-    expert specialization under different region modes.
+    The task is unordered multi-goal coverage, not ordered waypoint chaining.
+    Each episode places one goal in each terrain type of interest so the agent
+    has to cover multiple local dynamics while keeping its path short.
     """
 
     metadata = {"render_modes": ["rgb_array"]}
@@ -71,10 +71,13 @@ class MultiRegionNavEnv(gym.Env):
         self.start_position = np.zeros(2, dtype=np.float32)
         self.velocity = np.zeros(2, dtype=np.float32)
         self.goal = np.zeros(2, dtype=np.float32)
-        self.goal_points: list[np.ndarray] = []
-        self.current_goal_index = 0
+        self.goal_points = np.zeros((self.config.max_goals_supported, 2), dtype=np.float32)
+        self.goal_slot_names = ["inactive"] * self.config.max_goals_supported
+        self.goal_active_mask = np.zeros(self.config.max_goals_supported, dtype=bool)
+        self.visited_goals = np.zeros(self.config.max_goals_supported, dtype=bool)
         self.prev_action = np.zeros(2, dtype=np.float32)
         self.step_count = 0
+        self.path_length = 0.0
 
         self.primary_regions: list[Region] = []
         self.disturbance_regions: list[Region] = []
@@ -82,15 +85,14 @@ class MultiRegionNavEnv(gym.Env):
     def describe_mode(self) -> str:
         descriptions = {
             "old": (
-                "Old task distribution: multi-goal navigation over maps with normal, slippery, "
-                "and damping regions. Disturbance regions are absent by default, so the agent "
-                "must chain several waypoints while traversing stable but diverse local dynamics."
+                "Old task distribution: unordered multi-goal coverage on maps with normal, "
+                "slippery, and damping regions. One goal is anchored in each primary terrain, "
+                "so success requires visiting all terrain-specific targets in any order."
             ),
             "new": (
-                "New task distribution: still multi-goal navigation, but disturbance regions "
-                "become common and often overlap with slippery areas. The agent now has to "
-                "finish a waypoint sequence while resisting persistent external pushes on "
-                "high-inertia surfaces."
+                "New task distribution: unordered multi-goal coverage with an additional goal "
+                "inside disturbance-heavy terrain. The policy must still visit every goal, but "
+                "now one target lies in disturbance or slippery-disturbance dynamics."
             ),
         }
         return descriptions[self.mode]
@@ -98,25 +100,23 @@ class MultiRegionNavEnv(gym.Env):
     def describe_stage(self, stage_name: str) -> str:
         descriptions = {
             "acquisition": (
-                "Stage A / acquisition: learn the base navigation skill on old-task maps. "
-                "This is where early growth schedules should improve stability and speed."
+                "Stage A / acquisition: learn unordered terrain-spanning goal coverage on old-task maps."
             ),
             "maturation": (
-                "Stage B / maturation: continue training on old-task maps while lowering "
-                "gate temperature, shrinking top-k routing, and freezing part of the model. "
-                "This tests specialization and stability after growth."
+                "Stage B / maturation: continue on old-task maps while lowering gate temperature, "
+                "shrinking top-k routing, and freezing part of the model."
             ),
             "relearning": (
-                "Stage C / relearning: switch to new-task maps and measure how quickly the "
-                "policy adapts to disturbance-heavy dynamics."
+                "Stage C / relearning: switch to new-task maps and measure adaptation under "
+                "disturbance-heavy dynamics."
             ),
             "relearning_plastic": (
                 "Stage C / relearning, plastic branch: start from the acquisition checkpoint "
                 "before maturation, then adapt on new-task maps."
             ),
             "relearning_mature": (
-                "Stage C / relearning, mature branch: start from the matured and partially "
-                "frozen checkpoint, then adapt on new-task maps."
+                "Stage C / relearning, mature branch: start from the matured and partially frozen "
+                "checkpoint, then adapt on new-task maps."
             ),
         }
         return descriptions.get(stage_name, "Training stage description is not available.")
@@ -194,64 +194,169 @@ class MultiRegionNavEnv(gym.Env):
             dtype=np.float32,
         )
 
-    def _sample_goal_sequence(self, start: np.ndarray) -> list[np.ndarray]:
-        num_goals = int(
-            self.rng.integers(self.config.num_goals_min, self.config.num_goals_max + 1)
+    def _sample_point_in_box(
+        self, x_min: float, x_max: float, y_min: float, y_max: float
+    ) -> np.ndarray:
+        return np.array(
+            [
+                self.rng.uniform(x_min, x_max),
+                self.rng.uniform(y_min, y_max),
+            ],
+            dtype=np.float32,
         )
 
-        candidates: list[np.ndarray] = [self._region_center(region) for region in self.primary_regions]
-        candidates.extend(self._region_center(region) for region in self.disturbance_regions)
-        while len(candidates) < max(num_goals + 1, 5):
-            candidates.append(self._sample_random_point())
+    def _sample_point_in_region(self, region: Region, margin: float | None = None) -> np.ndarray:
+        margin = self.config.goal_region_margin if margin is None else margin
+        x_min = min(region.x_min + margin, region.x_max - 1e-3)
+        x_max = max(region.x_max - margin, x_min + 1e-3)
+        y_min = min(region.y_min + margin, region.y_max - 1e-3)
+        y_max = max(region.y_max - margin, y_min + 1e-3)
+        return self._sample_point_in_box(x_min, x_max, y_min, y_max)
 
-        goals: list[np.ndarray] = []
-        current = start.astype(np.float32)
-        used_indices: set[int] = set()
-        for _ in range(num_goals):
-            best_idx = None
-            best_distance = -1.0
-            for idx, candidate in enumerate(candidates):
-                if idx in used_indices:
-                    continue
-                if np.linalg.norm(candidate - current) < self.config.min_waypoint_distance:
-                    continue
-                distance = float(np.linalg.norm(candidate - current))
-                if distance > best_distance:
-                    best_distance = distance
-                    best_idx = idx
-            if best_idx is None:
-                attempts = 0
-                while attempts < 200:
-                    candidate = self._sample_random_point()
-                    if np.linalg.norm(candidate - current) >= self.config.min_waypoint_distance:
-                        goals.append(candidate)
-                        current = candidate
+    def _sample_overlap_point(self, first: Region, second: Region) -> np.ndarray | None:
+        margin = 0.25
+        x_min = max(first.x_min, second.x_min) + margin
+        x_max = min(first.x_max, second.x_max) - margin
+        y_min = max(first.y_min, second.y_min) + margin
+        y_max = min(first.y_max, second.y_max) - margin
+        if x_max <= x_min or y_max <= y_min:
+            return None
+        return self._sample_point_in_box(x_min, x_max, y_min, y_max)
+
+    def _goal_slot_names_for_mode(self) -> list[str]:
+        if self.mode == "new":
+            return ["normal", "slippery", "damping", "disturbance"][
+                : self.config.num_goals_new
+            ]
+        return ["normal", "slippery", "damping"][: self.config.num_goals_old]
+
+    def _candidate_point_for_slot(self, slot_name: str) -> np.ndarray:
+        primary_map = {region.name: region for region in self.primary_regions}
+        if slot_name in primary_map:
+            return self._sample_point_in_region(primary_map[slot_name])
+
+        if slot_name == "disturbance" and self.disturbance_regions:
+            slippery_region = primary_map.get("slippery")
+            if slippery_region is not None:
+                shuffled = list(self.disturbance_regions)
+                self.rng.shuffle(shuffled)
+                for disturbance_region in shuffled:
+                    overlap_point = self._sample_overlap_point(slippery_region, disturbance_region)
+                    if overlap_point is not None:
+                        return overlap_point
+            region = self.disturbance_regions[
+                int(self.rng.integers(0, len(self.disturbance_regions)))
+            ]
+            return self._sample_point_in_region(region)
+
+        return self._sample_random_point()
+
+    def _is_valid_goal_candidate(
+        self,
+        point: np.ndarray,
+        start: np.ndarray,
+        chosen: list[np.ndarray],
+        enforce_start_distance: bool,
+    ) -> bool:
+        if enforce_start_distance and (
+            np.linalg.norm(point - start) < self.config.min_start_goal_distance
+        ):
+            return False
+        for existing in chosen:
+            if np.linalg.norm(point - existing) < self.config.min_waypoint_distance:
+                return False
+        return True
+
+    def _sample_goal_points(self, start: np.ndarray) -> tuple[np.ndarray, list[str], np.ndarray]:
+        slot_names = self._goal_slot_names_for_mode()
+        max_goals = self.config.max_goals_supported
+        goals = np.zeros((max_goals, 2), dtype=np.float32)
+        active_mask = np.zeros(max_goals, dtype=bool)
+        chosen: list[np.ndarray] = []
+
+        for slot_idx, slot_name in enumerate(slot_names):
+            goal_point: np.ndarray | None = None
+            for attempt in range(80):
+                candidate = self._candidate_point_for_slot(slot_name)
+                enforce_start = attempt < 40
+                if self._is_valid_goal_candidate(candidate, start, chosen, enforce_start):
+                    goal_point = candidate
+                    break
+            if goal_point is None:
+                fallback = self._sample_random_point()
+                for attempt in range(120):
+                    enforce_start = attempt < 60
+                    if self._is_valid_goal_candidate(fallback, start, chosen, enforce_start):
+                        goal_point = fallback
                         break
-                    attempts += 1
-            else:
-                goal = candidates[best_idx].astype(np.float32)
-                used_indices.add(best_idx)
-                goals.append(goal)
-                current = goal
-        return goals
+                    fallback = self._sample_random_point()
+            if goal_point is None:
+                goal_point = self._sample_random_point()
+
+            goals[slot_idx] = goal_point.astype(np.float32)
+            active_mask[slot_idx] = True
+            chosen.append(goals[slot_idx].copy())
+
+        padded_names = slot_names + ["inactive"] * (max_goals - len(slot_names))
+        return goals, padded_names[:max_goals], active_mask
+
+    def _count_active_goals(self) -> int:
+        return int(self.goal_active_mask.sum())
+
+    def _count_visited_goals(self) -> int:
+        return int((self.goal_active_mask & self.visited_goals).sum())
+
+    def _all_goals_visited(self) -> bool:
+        active_count = self._count_active_goals()
+        return active_count > 0 and self._count_visited_goals() >= active_count
+
+    def _nearest_unvisited(self, position: np.ndarray) -> tuple[np.ndarray, float, int | None]:
+        best_idx = None
+        best_distance = np.inf
+        for idx in range(self.config.max_goals_supported):
+            if not self.goal_active_mask[idx] or self.visited_goals[idx]:
+                continue
+            distance = float(np.linalg.norm(self.goal_points[idx] - position))
+            if distance < best_distance:
+                best_distance = distance
+                best_idx = idx
+
+        if best_idx is None:
+            return np.zeros(2, dtype=np.float32), 0.0, None
+        return self.goal_points[best_idx].copy(), float(best_distance), int(best_idx)
+
+    def _mark_visited_goals(self) -> np.ndarray:
+        newly_visited = np.zeros(self.config.max_goals_supported, dtype=bool)
+        for idx in range(self.config.max_goals_supported):
+            if not self.goal_active_mask[idx] or self.visited_goals[idx]:
+                continue
+            distance = np.linalg.norm(self.goal_points[idx] - self.position)
+            if distance <= self.config.success_radius:
+                newly_visited[idx] = True
+        self.visited_goals |= newly_visited
+        return newly_visited
 
     def reset(
         self, *, seed: int | None = None, options: dict[str, Any] | None = None
     ) -> tuple[np.ndarray, dict[str, Any]]:
+        del options
         if seed is not None:
             self.seed(seed)
         self._sample_layout()
         start = self._sample_start_position()
         self.start_position = start.copy()
         self.position = start
-        self.goal_points = self._sample_goal_sequence(start)
-        self.current_goal_index = 0
-        self.goal = self.goal_points[self.current_goal_index].copy()
         self.velocity = np.zeros(2, dtype=np.float32)
         self.prev_action = np.zeros(2, dtype=np.float32)
         self.step_count = 0
+        self.path_length = 0.0
+
+        self.goal_points, self.goal_slot_names, self.goal_active_mask = self._sample_goal_points(start)
+        self.visited_goals = np.zeros(self.config.max_goals_supported, dtype=bool)
+        self.goal, _, _ = self._nearest_unvisited(self.position)
+
         obs = self._get_obs()
-        info = self._build_info(control_cost=0.0, success=False, goal_reached=False)
+        info = self._build_info(control_cost=0.0, success=False, new_goals_visited=0)
         return obs, info
 
     def _base_region_params(self) -> dict[str, float]:
@@ -323,35 +428,65 @@ class MultiRegionNavEnv(gym.Env):
 
     def _get_obs(self) -> np.ndarray:
         region = self._region_features(self.position)
-        total_goals = max(len(self.goal_points), 1)
-        goal_progress = self.current_goal_index / max(total_goals - 1, 1)
-        remaining_goals = (total_goals - 1 - self.current_goal_index) / max(total_goals - 1, 1)
+        active_count = max(self._count_active_goals(), 1)
+        visited_count = self._count_visited_goals()
+
+        goal_rel = np.zeros((self.config.max_goals_supported, 2), dtype=np.float32)
+        for idx in range(self.config.max_goals_supported):
+            if self.goal_active_mask[idx]:
+                goal_rel[idx] = self.goal_points[idx] - self.position
+
+        coverage_ratio = visited_count / active_count
+        remaining_ratio = (active_count - visited_count) / active_count
+
         obs = np.concatenate(
             [
                 self.position.astype(np.float32),
                 self.velocity.astype(np.float32),
-                (self.goal - self.position).astype(np.float32),
                 self.prev_action.astype(np.float32),
+                goal_rel.reshape(-1).astype(np.float32),
+                self.visited_goals.astype(np.float32),
+                self.goal_active_mask.astype(np.float32),
                 region["one_hot"],
                 np.array(
-                    [region["alpha"], region["beta"], region["disturbance"], goal_progress, remaining_goals],
+                    [
+                        region["alpha"],
+                        region["beta"],
+                        region["disturbance"],
+                        coverage_ratio,
+                        remaining_ratio,
+                    ],
                     dtype=np.float32,
                 ),
             ]
         ).astype(np.float32)
         return obs
 
-    def _build_info(self, control_cost: float, success: bool, goal_reached: bool = False) -> dict[str, Any]:
+    def _build_info(
+        self,
+        control_cost: float,
+        success: bool,
+        new_goals_visited: int = 0,
+    ) -> dict[str, Any]:
         region = self._region_features(self.position)
+        nearest_goal, nearest_distance, nearest_goal_idx = self._nearest_unvisited(self.position)
+        active_count = max(self._count_active_goals(), 1)
+        visited_count = self._count_visited_goals()
         return {
             "region_id": int(region["region_id"]),
             "region_name": region["region_name"],
             "control_cost": float(control_cost),
             "success": bool(success),
-            "goal_reached": bool(goal_reached),
-            "goal_index": int(self.current_goal_index),
-            "num_goals": int(len(self.goal_points)),
-            "distance": float(np.linalg.norm(self.goal - self.position)),
+            "new_goals_visited": int(new_goals_visited),
+            "goals_visited": int(visited_count),
+            "num_goals": int(active_count),
+            "coverage_ratio": float(visited_count / active_count),
+            "remaining_goals": int(active_count - visited_count),
+            "nearest_goal_index": -1 if nearest_goal_idx is None else int(nearest_goal_idx),
+            "nearest_goal": nearest_goal.tolist(),
+            "distance": float(nearest_distance),
+            "path_length": float(self.path_length),
+            "visited_mask": self.visited_goals.astype(np.int32).tolist(),
         }
 
     def get_layout_summary(self) -> dict[str, Any]:
@@ -364,15 +499,24 @@ class MultiRegionNavEnv(gym.Env):
                 "y_max": region.y_max,
             }
 
+        nearest_goal, nearest_distance, nearest_idx = self._nearest_unvisited(self.position)
         return {
             "mode": self.mode,
             "mode_description": self.describe_mode(),
             "world_min": self.config.world_min,
             "world_max": self.config.world_max,
             "start": self.start_position.tolist(),
-            "goal": self.goal.tolist(),
-            "goal_points": [goal.tolist() for goal in self.goal_points],
-            "current_goal_index": int(self.current_goal_index),
+            "goal": nearest_goal.tolist(),
+            "goal_points": self.goal_points[self.goal_active_mask].tolist(),
+            "goal_slot_names": [
+                self.goal_slot_names[idx]
+                for idx in range(self.config.max_goals_supported)
+                if self.goal_active_mask[idx]
+            ],
+            "visited_mask": self.visited_goals.astype(np.int32).tolist(),
+            "active_goal_mask": self.goal_active_mask.astype(np.int32).tolist(),
+            "nearest_goal_index": -1 if nearest_idx is None else int(nearest_idx),
+            "nearest_goal_distance": float(nearest_distance),
             "primary_regions": [_serialize(region) for region in self.primary_regions],
             "disturbance_regions": [_serialize(region) for region in self.disturbance_regions],
         }
@@ -434,17 +578,20 @@ class MultiRegionNavEnv(gym.Env):
             traj = np.asarray(trajectory, dtype=np.float32)
             ax.plot(traj[:, 0], traj[:, 1], color="#2b8cbe", linewidth=2.0, label="trajectory")
 
-        if self.goal_points:
-            goals = np.asarray(self.goal_points, dtype=np.float32)
-            if len(goals) > 1:
-                ax.plot(goals[:, 0], goals[:, 1], linestyle=":", color="#31a354", alpha=0.5)
-            for idx, goal in enumerate(goals):
-                if idx < self.current_goal_index:
-                    ax.scatter(goal[0], goal[1], marker="o", s=70, c="#9e9e9e")
-                elif idx == self.current_goal_index:
-                    ax.scatter(goal[0], goal[1], marker="*", s=220, c="#31a354", label="current goal")
-                else:
-                    ax.scatter(goal[0], goal[1], marker="X", s=90, c="#74c476")
+        nearest_goal, _, nearest_idx = self._nearest_unvisited(self.position)
+        for idx in range(self.config.max_goals_supported):
+            if not self.goal_active_mask[idx]:
+                continue
+            goal = self.goal_points[idx]
+            slot_name = self.goal_slot_names[idx]
+            if self.visited_goals[idx]:
+                ax.scatter(goal[0], goal[1], marker="o", s=70, c="#9e9e9e")
+            elif nearest_idx is not None and idx == nearest_idx:
+                ax.scatter(goal[0], goal[1], marker="*", s=220, c="#31a354", label="nearest unvisited")
+            else:
+                ax.scatter(goal[0], goal[1], marker="X", s=90, c="#74c476")
+            ax.text(goal[0] + 0.08, goal[1] + 0.08, slot_name, fontsize=7, color="#1b4332")
+
         ax.scatter(self.position[0], self.position[1], marker="o", s=90, c="#de2d26", label="agent")
         ax.legend(loc="upper right", fontsize=8)
 
@@ -476,7 +623,8 @@ class MultiRegionNavEnv(gym.Env):
         action = np.asarray(action, dtype=np.float32).clip(-self.config.action_limit, self.config.action_limit)
         self.step_count += 1
 
-        prev_distance = float(np.linalg.norm(self.goal - self.position))
+        _, prev_distance, _ = self._nearest_unvisited(self.position)
+        prev_position = self.position.copy()
         region = self._region_features(self.position)
         disturbance = self._disturbance_vector(region["disturbance"])
 
@@ -487,34 +635,43 @@ class MultiRegionNavEnv(gym.Env):
         )
         self.velocity = np.clip(self.velocity, -self.config.max_speed, self.config.max_speed)
         self.position = self.position + self.config.dt * self.velocity
+        self.path_length += float(np.linalg.norm(self.position - prev_position))
 
-        current_distance = float(np.linalg.norm(self.goal - self.position))
-        goal_reached = current_distance <= self.config.success_radius
-        success = False
+        newly_visited = self._mark_visited_goals()
+        new_goals_visited = int(newly_visited.sum())
+        self.goal, current_distance, _ = self._nearest_unvisited(self.position)
+
         out_of_bounds = bool(
             np.any(self.position < self.config.world_min)
             or np.any(self.position > self.config.world_max)
         )
-        terminated = out_of_bounds
+        all_goals_visited = self._all_goals_visited()
+        success = bool(all_goals_visited and not out_of_bounds)
+        terminated = bool(out_of_bounds or success)
         truncated = self.step_count >= self.config.max_steps
 
-        progress_reward = self.config.progress_reward_scale * (prev_distance - current_distance)
-        distance_penalty = self.config.distance_penalty_scale * current_distance
+        prev_distance_value = prev_distance if np.isfinite(prev_distance) else 0.0
+        current_distance_value = current_distance if np.isfinite(current_distance) else 0.0
+        progress_reward = self.config.progress_reward_scale * (
+            prev_distance_value - current_distance_value
+        )
+        distance_penalty = self.config.distance_penalty_scale * current_distance_value
         control_cost = self.config.action_penalty_scale * float(np.sum(np.square(action)))
         smoothness_cost = self.config.smoothness_penalty_scale * float(
             np.sum(np.square(action - self.prev_action))
         )
+        step_penalty = self.config.step_penalty_scale
 
-        reward = progress_reward - distance_penalty - control_cost - smoothness_cost
-        if goal_reached:
-            if self.current_goal_index < len(self.goal_points) - 1:
-                reward += self.config.waypoint_bonus
-                self.current_goal_index += 1
-                self.goal = self.goal_points[self.current_goal_index].copy()
-            else:
-                reward += self.config.success_bonus
-                success = True
-                terminated = True
+        reward = (
+            progress_reward
+            - distance_penalty
+            - control_cost
+            - smoothness_cost
+            - step_penalty
+            + self.config.goal_bonus * new_goals_visited
+        )
+        if success:
+            reward += self.config.success_bonus
         if out_of_bounds:
             reward -= self.config.out_of_bounds_penalty
 
@@ -523,6 +680,6 @@ class MultiRegionNavEnv(gym.Env):
         info = self._build_info(
             control_cost=control_cost + smoothness_cost,
             success=success,
-            goal_reached=goal_reached,
+            new_goals_visited=new_goals_visited,
         )
         return obs, float(reward), terminated, truncated, info

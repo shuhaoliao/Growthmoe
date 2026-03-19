@@ -103,6 +103,16 @@ def plot_experiment(run_dir: str | Path) -> None:
             "Control Cost",
         )
         _save_line_plot(
+            plot_dir / "coverage_curve.png",
+            [
+                _series(acquisition_rows, "global_env_step", "coverage_mean") + ("acquisition",),
+                _series(maturation_rows, "global_env_step", "coverage_mean") + ("maturation",),
+            ],
+            "Goal Coverage",
+            "Environment Steps",
+            "Coverage Ratio",
+        )
+        _save_line_plot(
             plot_dir / "gate_entropy_curve.png",
             [
                 _series(acquisition_rows, "global_env_step", "gate_entropy_mean") + ("acquisition",),

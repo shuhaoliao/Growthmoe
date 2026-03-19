@@ -14,19 +14,25 @@ class EnvConfig:
     action_limit: float = 1.0
     max_speed: float = 3.0
     spawn_margin: float = 0.75
-    min_start_goal_distance: float = 5.0
-    min_waypoint_distance: float = 2.5
-    num_goals_min: int = 2
+    min_start_goal_distance: float = 2.5
+    min_waypoint_distance: float = 1.75
+    num_goals_min: int = 3
     num_goals_max: int = 4
+    num_goals_old: int = 3
+    num_goals_new: int = 4
+    max_goals_supported: int = 4
     num_primary_regions: int = 3
     num_disturbance_regions_old: int = 0
     num_disturbance_regions_new: int = 2
+    goal_region_margin: float = 0.45
     disturbance_strength_old: float = 0.0
     disturbance_strength_new: float = 0.45
     progress_reward_scale: float = 2.0
     distance_penalty_scale: float = 0.08
     action_penalty_scale: float = 0.04
     smoothness_penalty_scale: float = 0.03
+    step_penalty_scale: float = 0.02
+    goal_bonus: float = 6.0
     waypoint_bonus: float = 4.0
     success_bonus: float = 15.0
     out_of_bounds_penalty: float = 7.0
@@ -34,7 +40,12 @@ class EnvConfig:
 
     @property
     def obs_dim(self) -> int:
-        return 17
+        base_state = 2 + 2 + 2
+        goal_features = self.max_goals_supported * 2
+        goal_masks = self.max_goals_supported * 2
+        region_features = 4
+        scalar_features = 5
+        return base_state + goal_features + goal_masks + region_features + scalar_features
 
     @property
     def action_dim(self) -> int:
