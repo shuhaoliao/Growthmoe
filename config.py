@@ -41,14 +41,12 @@ class EnvConfig:
     bipedal_section_max_steps: int = 30
     bipedal_old_slope_scale: float = 1.0
     bipedal_new_slope_scale: float = 1.0
-    bipedal_slope_angle_min_deg: float = 33.0
-    bipedal_slope_angle_max_deg: float = 37.0
+    bipedal_slope_angle_min_deg: float = 30.0
+    bipedal_slope_angle_max_deg: float = 40.0
     bipedal_old_roughness: float = 1.0
     bipedal_new_roughness: float = 1.4
     bipedal_flat_noise: float = 0.008
-    bipedal_height_clip: float = 6.0
-    bipedal_rough_pit_depth: float = 0.32
-    bipedal_rough_pit_spacing: int = 4
+    bipedal_height_clip: float = 1.2
     seed: int = 42
 
     @property
