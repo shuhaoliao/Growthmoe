@@ -141,6 +141,9 @@ for idx in "${!PIDS[@]}"; do
   fi
 done
 
+echo "[summary] parallel training finished"
+echo "[summary] writing manifest to ${GROUP_DIR}/manifest.json"
+
 "${PYTHON_BIN}" - <<PY
 import json
 from pathlib import Path
@@ -166,6 +169,8 @@ print(group_dir)
 PY
 
 if [[ "${SKIP_SUMMARY}" != "1" ]]; then
+  echo "[summary] starting post-training evaluation and visualization export"
+  echo "[summary] summarize_results.py will load checkpoints, run rollout evaluation, and save GIF/PNG outputs"
   "${PYTHON_BIN}" summarize_results.py --group-dir "${GROUP_DIR}" --device "${DEVICE}" | tee "${GROUP_DIR}/summary.stdout.log"
 fi
 
